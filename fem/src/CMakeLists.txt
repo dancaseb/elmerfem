@@ -55,7 +55,7 @@ ELSE()
 ENDIF()
 
 IF(WITH_YAC)
-  LIST(APPEND solverlib_SOURCES elmer_grid.c elmer_coupling.F90)
+  LIST(APPEND solverlib_SOURCES elmer_coupling.F90)
 ENDIF()
 
 
