@@ -194,37 +194,35 @@ void STDCALLBULL FC_FUNC(solvehypre1,SOLVEHYPRE1)
    /* Initialize before setting coefficients */
    HYPRE_IJMatrixInitialize(A);
 
-   /* Build the whole local block of matrix entries in one shot and hand it to
-      Hypre with a single HYPRE_IJMatrixAddToValues call instead of one call
-      per row. When Hypre is built with CUDA, each AddToValues call incurs its
-      own device allocation/copy, so calling it once per row (potentially
-      millions of times) dominates runtime; a single bulk call amortizes that
-      overhead across the whole matrix.
-   */
+   /* Build the local block of matrix entries for Hypre */
    {
-      int i,j,base;
-      int *rcols_all, *irows_all, *ncols_all;
+      int i,j;
+      /* rcols     - global column index of each nonzero entry in the local block (length total_nnz)
+         irows     - global row index of each row in the local block (length local_size)
+         ncols     - number of nonzero entries in each row (length local_size)
+         total_nnz - total number of nonzero entries in the local block
+      */
+      int *rcols, *irows, *ncols;
       int total_nnz;
 
-      base = rows[0]-1;
-      total_nnz = rows[local_size]-rows[0];
+      total_nnz = rows[local_size]-1; /* rows[0] is always 1 (CRS convention) */
 
-      irows_all = (int *)malloc( local_size*sizeof(int) );
-      ncols_all = (int *)malloc( local_size*sizeof(int) );
-      rcols_all = (int *)malloc( total_nnz*sizeof(int) );
+      irows = (int *)malloc( local_size*sizeof(int) );
+      ncols = (int *)malloc( local_size*sizeof(int) );
+      rcols = (int *)malloc( total_nnz*sizeof(int) );
 
       for (i = 0; i < local_size; i++) {
-        irows_all[i] = globaldofs[i];
-        ncols_all[i] = rows[i+1]-rows[i];
+        irows[i] = globaldofs[i];
+        ncols[i] = rows[i+1]-rows[i];
         for (j = rows[i]; j < rows[i+1]; j++) {
-          rcols_all[j-1-base] = globaldofs[cols[j-1]-1];
+          rcols[j-1] = globaldofs[cols[j-1]-1];
         }
       }
 
       if ( local_size > 0 )
-        HYPRE_IJMatrixAddToValues(A, local_size, ncols_all, irows_all, rcols_all, &vals[base]);
+        HYPRE_IJMatrixAddToValues(A, local_size, ncols, irows, rcols, vals);
 
-      free( rcols_all ); free( irows_all ); free( ncols_all );
+      free( rcols ); free( irows ); free( ncols );
    }
 
    /* Assemble after setting the coefficients */
@@ -239,29 +237,33 @@ void STDCALLBULL FC_FUNC(solvehypre1,SOLVEHYPRE1)
      HYPRE_IJMatrixSetObjectType(Atilde, HYPRE_PARCSR);
      HYPRE_IJMatrixInitialize(Atilde);
      {
-        int i,j,base;
-        int *rcols_all, *irows_all, *ncols_all;
+        int i,j;
+        /* rcols     - global column index of each nonzero entry in the local block (length total_nnz)
+           irows     - global row index of each row in the local block (length local_size)
+           ncols     - number of nonzero entries in each row (length local_size)
+           total_nnz - total number of nonzero entries in the local block
+        */
+        int *rcols, *irows, *ncols;
         int total_nnz;
 
-        base = rows[0]-1;
-        total_nnz = rows[local_size]-rows[0];
+        total_nnz = rows[local_size]-1; /* rows[0] is always 1 (CRS convention) */
 
-        irows_all = (int *)malloc( local_size*sizeof(int) );
-        ncols_all = (int *)malloc( local_size*sizeof(int) );
-        rcols_all = (int *)malloc( total_nnz*sizeof(int) );
+        irows = (int *)malloc( local_size*sizeof(int) );
+        ncols = (int *)malloc( local_size*sizeof(int) );
+        rcols = (int *)malloc( total_nnz*sizeof(int) );
 
         for (i = 0; i < local_size; i++) {
-          irows_all[i] = globaldofs[i];
-          ncols_all[i] = rows[i+1]-rows[i];
+          irows[i] = globaldofs[i];
+          ncols[i] = rows[i+1]-rows[i];
           for (j = rows[i]; j < rows[i+1]; j++) {
-            rcols_all[j-1-base] = globaldofs[cols[j-1]-1];
+            rcols[j-1] = globaldofs[cols[j-1]-1];
           }
         }
 
         if ( local_size > 0 )
-          HYPRE_IJMatrixAddToValues(Atilde, local_size, ncols_all, irows_all, rcols_all, &precvals[base]);
+          HYPRE_IJMatrixAddToValues(Atilde, local_size, ncols, irows, rcols, precvals);
 
-        free( rcols_all ); free( irows_all ); free( ncols_all );
+        free( rcols ); free( irows ); free( ncols );
      }
      /* Assemble after setting the coefficients */
      HYPRE_IJMatrixAssemble(Atilde);
@@ -275,16 +277,23 @@ void STDCALLBULL FC_FUNC(solvehypre1,SOLVEHYPRE1)
      HYPRE_IJMatrixInitialize(Atilde);
 
      {
-       int *rcols_all, *irows_all, *ncols_all;
-       double *dbuf_all;
+       /* rcols     - global column index of each retained nonzero entry (length: final pos)
+          irows     - global row index of each row in the local block (length local_size)
+          ncols     - number of entries kept for each row after BILU filtering (length local_size)
+          dbuf      - values of the retained entries, in the same order as rcols
+          total_nnz - upper bound on the retained count, before filtering
+          pos       - running write index into rcols/dbuf as entries are kept
+       */
+       int *rcols, *irows, *ncols;
+       double *dbuf;
        int total_nnz, pos;
 
-       total_nnz = rows[local_size]-rows[0]; /* upper bound: filtering can only shrink this */
+       total_nnz = rows[local_size]-1; /* rows[0] is always 1 (CRS convention); upper bound, filtering can only shrink this */
 
-       irows_all = (int *)malloc( local_size*sizeof(int) );
-       ncols_all = (int *)malloc( local_size*sizeof(int) );
-       rcols_all = (int *)malloc( total_nnz*sizeof(int) );
-       dbuf_all  = (double *)malloc( total_nnz*sizeof(double) );
+       irows = (int *)malloc( local_size*sizeof(int) );
+       ncols = (int *)malloc( local_size*sizeof(int) );
+       rcols = (int *)malloc( total_nnz*sizeof(int) );
+       dbuf  = (double *)malloc( total_nnz*sizeof(double) );
 
        pos = 0;
        for (i = 0; i < local_size; i++) {
@@ -296,20 +305,20 @@ void STDCALLBULL FC_FUNC(solvehypre1,SOLVEHYPRE1)
                Here we assume it is.
            */
            if ((irow%*BILU)==(jcol%*BILU)) {
-             rcols_all[pos] = jcol;
-             dbuf_all[pos] = vals[j-1];
+             rcols[pos] = jcol;
+             dbuf[pos] = vals[j-1];
              pos++;
              nnz++;
            }
          }
-         irows_all[i] = irow;
-         ncols_all[i] = nnz;
+         irows[i] = irow;
+         ncols[i] = nnz;
        }
 
        if ( local_size > 0 )
-         HYPRE_IJMatrixAddToValues(Atilde, local_size, ncols_all, irows_all, rcols_all, dbuf_all);
+         HYPRE_IJMatrixAddToValues(Atilde, local_size, ncols, irows, rcols, dbuf);
 
-       free( rcols_all ); free( dbuf_all ); free( irows_all ); free( ncols_all );
+       free( rcols ); free( dbuf ); free( irows ); free( ncols );
      }
      /* Assemble after setting the coefficients */
      HYPRE_IJMatrixAssemble(Atilde);
@@ -1206,9 +1215,17 @@ void STDCALLBULL FC_FUNC(createhypreams,CREATEHYPREAMS)
    HYPRE_IJMatrixInitialize(G);
    
    {
+      /* rcols       - global column index of each nonzero entry kept for owned rows (length total_nnz)
+         irows       - global row index of each owned row (length nrows_out)
+         ncols       - number of nonzero entries in each owned row (length nrows_out)
+         gvals_local - values of the kept entries, in the same order as rcols
+         nrows_out   - number of rows owned by this rank (<= local_size)
+         total_nnz   - total number of nonzero entries across owned rows
+         r, pos      - running write indices into irows/ncols and rcols/gvals_local
+      */
       int nnz,irow,i,j,l,p,q;
-      int *rcols_all, *irows_all, *ncols_all;
-      double *gvals_all;
+      int *rcols, *irows, *ncols;
+      double *gvals_local;
       int nrows_out, total_nnz, r, pos;
 
       nrows_out = 0;
@@ -1219,10 +1236,10 @@ void STDCALLBULL FC_FUNC(createhypreams,CREATEHYPREAMS)
         total_nnz += grows[i+1] - grows[i];
       }
 
-      irows_all = (int *)malloc( nrows_out*sizeof(int) );
-      ncols_all = (int *)malloc( nrows_out*sizeof(int) );
-      rcols_all = (int *)malloc( total_nnz*sizeof(int) );
-      gvals_all = (double *)malloc( total_nnz*sizeof(double) );
+      irows = (int *)malloc( nrows_out*sizeof(int) );
+      ncols = (int *)malloc( nrows_out*sizeof(int) );
+      rcols = (int *)malloc( total_nnz*sizeof(int) );
+      gvals_local = (double *)malloc( total_nnz*sizeof(double) );
 
       r = 0; pos = 0;
       for (i = 0; i < local_size; i++)
@@ -1230,23 +1247,23 @@ void STDCALLBULL FC_FUNC(createhypreams,CREATEHYPREAMS)
          if( !owner[i] ) continue;
          nnz = grows[i+1] - grows[i];
          irow = globaldofs[i];
-         irows_all[r] = irow;
-         ncols_all[r] = nnz;
+         irows[r] = irow;
+         ncols[r] = nnz;
          r++;
          for( j=grows[i]; j<grows[i+1]; j++, pos++ )
          {
            l = gcols[j-1]-1;
            p = l % 3;
            q = l / 3;
-           rcols_all[pos] = 3*globalnodes[q]+p;
-           gvals_all[pos] = gvals[j-1];
+           rcols[pos] = 3*globalnodes[q]+p;
+           gvals_local[pos] = gvals[j-1];
          }
       }
 
       if ( nrows_out > 0 )
-        HYPRE_IJMatrixAddToValues(G, nrows_out, ncols_all, irows_all, rcols_all, gvals_all);
+        HYPRE_IJMatrixAddToValues(G, nrows_out, ncols, irows, rcols, gvals_local);
 
-      free( rcols_all ); free( irows_all ); free( ncols_all ); free( gvals_all );
+      free( rcols ); free( irows ); free( ncols ); free( gvals_local );
    }
    
    HYPRE_IJMatrixAssemble(G);
@@ -1270,9 +1287,17 @@ void STDCALLBULL FC_FUNC(createhypreams,CREATEHYPREAMS)
    HYPRE_IJMatrixInitialize(Pi);
    
    {
+      /* rcols        - global column index of each nonzero entry kept for owned rows (length total_nnz)
+         irows        - global row index of each owned row (length nrows_out)
+         ncols        - number of nonzero entries in each owned row (length nrows_out)
+         pivals_local - values of the kept entries, in the same order as rcols
+         nrows_out    - number of rows owned by this rank (<= local_size)
+         total_nnz    - total number of nonzero entries across owned rows
+         r, pos       - running write indices into irows/ncols and rcols/pivals_local
+      */
       int nnz,irow,i,j,l,p,q;
-      int *rcols_all, *irows_all, *ncols_all;
-      double *pivals_all;
+      int *rcols, *irows, *ncols;
+      double *pivals_local;
       int nrows_out, total_nnz, r, pos;
 
       nrows_out = 0;
@@ -1283,10 +1308,10 @@ void STDCALLBULL FC_FUNC(createhypreams,CREATEHYPREAMS)
         total_nnz += pirows[i+1] - pirows[i];
       }
 
-      irows_all = (int *)malloc( nrows_out*sizeof(int) );
-      ncols_all = (int *)malloc( nrows_out*sizeof(int) );
-      rcols_all = (int *)malloc( total_nnz*sizeof(int) );
-      pivals_all = (double *)malloc( total_nnz*sizeof(double) );
+      irows = (int *)malloc( nrows_out*sizeof(int) );
+      ncols = (int *)malloc( nrows_out*sizeof(int) );
+      rcols = (int *)malloc( total_nnz*sizeof(int) );
+      pivals_local = (double *)malloc( total_nnz*sizeof(double) );
 
       r = 0; pos = 0;
       for (i = 0; i < local_size; i++)
@@ -1294,23 +1319,23 @@ void STDCALLBULL FC_FUNC(createhypreams,CREATEHYPREAMS)
          if( !owner[i] ) continue;
          nnz =  pirows[i+1] - pirows[i];
          irow = globaldofs[i];
-         irows_all[r] = irow;
-         ncols_all[r] = nnz;
+         irows[r] = irow;
+         ncols[r] = nnz;
          r++;
          for( j=pirows[i]; j<pirows[i+1]; j++, pos++ )
          {
            l = picols[j-1]-1;
            p = l % 3;
            q = l / 3;
-           rcols_all[pos] = 3*globalnodes[q]+p;
-           pivals_all[pos] = pivals[j-1];
+           rcols[pos] = 3*globalnodes[q]+p;
+           pivals_local[pos] = pivals[j-1];
          }
       }
 
       if ( nrows_out > 0 )
-        HYPRE_IJMatrixAddToValues(Pi, nrows_out, ncols_all, irows_all, rcols_all, pivals_all);
+        HYPRE_IJMatrixAddToValues(Pi, nrows_out, ncols, irows, rcols, pivals_local);
 
-      free( rcols_all ); free( irows_all ); free( ncols_all ); free( pivals_all );
+      free( rcols ); free( irows ); free( ncols ); free( pivals_local );
    }
 
    HYPRE_IJMatrixAssemble(Pi);
