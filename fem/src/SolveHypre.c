@@ -205,7 +205,8 @@ void STDCALLBULL FC_FUNC(solvehypre1,SOLVEHYPRE1)
       int *rcols, *irows, *ncols;
       int total_nnz;
 
-      total_nnz = rows[local_size]-1; /* rows[0] is always 1 (CRS convention) */
+      // -1 because Fortran is 1-based (last entry in CRS rows is total_nnz+1)
+      total_nnz = rows[local_size]-1;
 
       irows = (int *)malloc( local_size*sizeof(int) );
       ncols = (int *)malloc( local_size*sizeof(int) );
@@ -246,7 +247,6 @@ void STDCALLBULL FC_FUNC(solvehypre1,SOLVEHYPRE1)
         int *rcols, *irows, *ncols;
         int total_nnz;
 
-        // -1 because Fortran is 1-based (last entry in CRS rows is total_nnz+1)
         total_nnz = rows[local_size]-1;
 
         irows = (int *)malloc( local_size*sizeof(int) );
@@ -278,11 +278,13 @@ void STDCALLBULL FC_FUNC(solvehypre1,SOLVEHYPRE1)
      HYPRE_IJMatrixInitialize(Atilde);
 
      {
-       /* rcols     - global column index of each retained nonzero entry
+       /* rcols     - global column index of each retained nonzero entry, allocated to
+                      total_nnz but only the first pos entries end up populated
           irows     - global row index of each row in the local block (length local_size)
           ncols     - number of entries kept for each row after BILU filtering (length local_size)
           dbuf      - values of the retained entries, in the same order as rcols
           total_nnz - upper bound on the retained count, before filtering
+          pos       - running write index into rcols/dbuf as entries are kept
        */
        int *rcols, *irows, *ncols;
        double *dbuf;
@@ -1293,7 +1295,7 @@ void STDCALLBULL FC_FUNC(createhypreams,CREATEHYPREAMS)
          pivals_local - values of the kept entries, in the same order as rcols
          nrows_out    - number of rows owned by this rank (<= local_size)
          total_nnz    - total number of nonzero entries across owned rows
-         r, pos       - running write indices into irows/ncols and rcols/pivals_local
+         r, pos      - running write indices into irows/ncols and rcols/gvals_local
       */
       int nnz,irow,i,j,l,p,q;
       int *rcols, *irows, *ncols;
