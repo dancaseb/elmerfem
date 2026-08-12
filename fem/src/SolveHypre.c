@@ -246,7 +246,8 @@ void STDCALLBULL FC_FUNC(solvehypre1,SOLVEHYPRE1)
         int *rcols, *irows, *ncols;
         int total_nnz;
 
-        total_nnz = rows[local_size]-1; /* rows[0] is always 1 (CRS convention) */
+        // -1 because Fortran is 1-based (last entry in CRS rows is total_nnz+1)
+        total_nnz = rows[local_size]-1;
 
         irows = (int *)malloc( local_size*sizeof(int) );
         ncols = (int *)malloc( local_size*sizeof(int) );
@@ -277,18 +278,17 @@ void STDCALLBULL FC_FUNC(solvehypre1,SOLVEHYPRE1)
      HYPRE_IJMatrixInitialize(Atilde);
 
      {
-       /* rcols     - global column index of each retained nonzero entry (length: final pos)
+       /* rcols     - global column index of each retained nonzero entry
           irows     - global row index of each row in the local block (length local_size)
           ncols     - number of entries kept for each row after BILU filtering (length local_size)
           dbuf      - values of the retained entries, in the same order as rcols
           total_nnz - upper bound on the retained count, before filtering
-          pos       - running write index into rcols/dbuf as entries are kept
        */
        int *rcols, *irows, *ncols;
        double *dbuf;
        int total_nnz, pos;
 
-       total_nnz = rows[local_size]-1; /* rows[0] is always 1 (CRS convention); upper bound, filtering can only shrink this */
+       total_nnz = rows[local_size]-1;
 
        irows = (int *)malloc( local_size*sizeof(int) );
        ncols = (int *)malloc( local_size*sizeof(int) );
