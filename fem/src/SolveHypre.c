@@ -228,6 +228,7 @@ void STDCALLBULL FC_FUNC(solvehypre1,SOLVEHYPRE1)
 
    /* Assemble after setting the coefficients */
    HYPRE_IJMatrixAssemble(A);
+   CheckHypreError("SolveHypre1 (A assembly)", myid);
 
    if (!*precflag && *BILU <= 1) {
      /* Standard version - use A as preconditioner */
@@ -325,6 +326,7 @@ void STDCALLBULL FC_FUNC(solvehypre1,SOLVEHYPRE1)
      /* Assemble after setting the coefficients */
      HYPRE_IJMatrixAssemble(Atilde);
    }
+   CheckHypreError("SolveHypre1 (Atilde assembly)", myid);
 
    /* Get the parcsr matrix object to use */
    /* note: this is only used for setup,  */
@@ -1269,6 +1271,7 @@ void STDCALLBULL FC_FUNC(createhypreams,CREATEHYPREAMS)
    }
    
    HYPRE_IJMatrixAssemble(G);
+   CheckHypreError("CreateHypreAMS (G assembly)", myid);
    HYPRE_IJMatrixGetObject(G, (void**) &parcsr_G);
 
 
@@ -1341,6 +1344,7 @@ void STDCALLBULL FC_FUNC(createhypreams,CREATEHYPREAMS)
    }
 
    HYPRE_IJMatrixAssemble(Pi);
+   CheckHypreError("CreateHypreAMS (Pi assembly)", myid);
    HYPRE_IJMatrixGetObject(Pi, (void**) &parcsr_Pi);
 
    
@@ -1390,29 +1394,32 @@ void STDCALLBULL FC_FUNC(createhypreams,CREATEHYPREAMS)
    HYPRE_IJVectorGetObject(zz, (void **) &par_zz);
 #endif
 
-   HYPRE_AMSCreate(&precond); 
+   HYPRE_AMSCreate(&precond);
    HYPRE_AMSSetDiscreteGradient(precond,parcsr_G);
+   CheckHypreError("CreateHypreAMS (SetDiscreteGradient)", myid);
    HYPRE_AMSSetInterpolations(precond, parcsr_Pi, NULL, NULL, NULL);
+   CheckHypreError("CreateHypreAMS (SetInterpolations)", myid);
 //   HYPRE_AMSSetEdgeConstantVectors(precond,par_xx,par_yy,par_zz);
 //   HYPRE_AMSSetCoordinateVectors(precond,par_xx,par_yy,par_zz);
 
    // AMS Parameters
    HYPRE_AMSSetMaxIter(precond,hypre_intpara[0]);
    HYPRE_AMSSetTol(precond,hypre_dppara[0]);
-   
+
    HYPRE_AMSSetCycleType(precond, hypre_intpara[1]); // 1-14
    HYPRE_AMSSetSmoothingOptions(precond, hypre_intpara[2], hypre_intpara[3],
            hypre_dppara[1], hypre_dppara[2]);
    HYPRE_AMSSetAlphaAMGOptions(precond, 10, 1, 3, hypre_dppara[3], 0, 0);
    HYPRE_AMSSetBetaAMGOptions(precond, 10, 1, 3, hypre_dppara[4], 0, 0);
 
-   if(hypre_intpara[4]) 
+   if(hypre_intpara[4])
      HYPRE_AMSSetBetaPoissonMatrix(precond,NULL);
-   
+
    i = (verbosity >= 6);
    if(verbosity >= 10) i=3;
-   HYPRE_AMSSetPrintLevel(precond, i); 
-   
+   HYPRE_AMSSetPrintLevel(precond, i);
+   CheckHypreError("CreateHypreAMS (AMS parameters)", myid);
+
    Container->precond = precond;
    Container->G = G; 
    Container->Pi = Pi; 
