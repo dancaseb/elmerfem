@@ -69,12 +69,6 @@ typedef struct {
 
 } ElmerHypreContainer;
 
-static int CompareIntDebug(const void *a, const void *b)
-{
-  int ia = *(const int *)a, ib = *(const int *)b;
-  return (ia > ib) - (ia < ib);
-}
-
 static void CheckHypreError(const char *Caller, int myid)
 {
   int ierr = HYPRE_GetError();
@@ -218,21 +212,6 @@ void STDCALLBULL FC_FUNC(solvehypre1,SOLVEHYPRE1)
 
       // -1 because Fortran is 1-based (last entry in CRS rows is total_nnz+1)
       total_nnz = rows[local_size]-1;
-
-      {
-        int check_sum = 0;
-        int dup_count = 0;
-        int *sorted_dofs = (int *)malloc( local_size*sizeof(int) );
-        for (i = 0; i < local_size; i++) check_sum += rows[i+1]-rows[i];
-        memcpy( sorted_dofs, globaldofs, local_size*sizeof(int) );
-        qsort( sorted_dofs, local_size, sizeof(int), CompareIntDebug );
-        for (i = 1; i < local_size; i++)
-          if ( sorted_dofs[i] == sorted_dofs[i-1] ) dup_count++;
-        free( sorted_dofs );
-        fprintf(stderr,
-          "DEBUG A: local_size=%d rows[0]=%d rows[local_size]=%d total_nnz=%d check_sum=%d dup_count=%d\n",
-          local_size, rows[0], rows[local_size], total_nnz, check_sum, dup_count);
-      }
 
       irows = (int *)malloc( local_size*sizeof(int) );
       ncols = (int *)malloc( local_size*sizeof(int) );
@@ -1242,7 +1221,6 @@ void STDCALLBULL FC_FUNC(createhypreams,CREATEHYPREAMS)
        }
 #endif
   // fprintf( stderr, "%d %d %d %d\n", ilower, iupper, nlower, nupper );
-  // fprintf( stderr, "Running row row for G\n");
 
    HYPRE_IJMatrixCreate(comm, ilower, iupper, nlower, nupper, &G);
    HYPRE_IJMatrixSetObjectType(G, HYPRE_PARCSR);
