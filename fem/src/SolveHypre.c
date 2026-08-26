@@ -1449,18 +1449,57 @@ void STDCALLBULL FC_FUNC(createhypreams,CREATEHYPREAMS)
    HYPRE_IJMatrixGetObject(Pi, (void**) &parcsr_Pi);
    CheckHypreError("CreateHypreAMS (Pi GetObject)", myid);
 
-   /* Dead code removed here: this used to build throwaway xx/yy/zz IJVectors
-      from xx_d/yy_d/zz_d (coordinate data) via HYPRE_IJVectorSetValues, but
-      xx_d/yy_d/zz_d are never ALLOCATEd on the Fortran side (SParIterSolver.F90),
-      so they arrive here as NULL, and the resulting par_xx/par_yy/par_zz were
-      never consumed anyway -- HYPRE_AMSSetCoordinateVectors/SetEdgeConstantVectors
-      below were already commented out. This tripped a spurious
-      "Error in argument 4" (HYPRE_IJVectorSetValues' NULL values check) on
-      every AMS setup. The #if 0 branch it replaced also indexed through the
-      *rcols pointer declared at the top of this function, which is never
-      allocated in this function (G/Pi's own row-building blocks each declare
-      their own shadowed local rcols) -- a second, separate bug that never
-      manifested only because the #else branch always ran instead. */
+  /* This is commented out, probably was used to set the coordinate vectors for AMS, but it is not used
+     because we are using the gradient instead of the
+     coordinate vectors. xx/yy/zz IJVectors and xx_d/yy_d/zz_d from Fortran were never allocated
+     and this code would trigger "Error in argument 4" (HYPRE_IJVectorSetValues' NULL values check),
+     so for now this is commented out.
+  */
+// #if 0
+//    for( k=0,i=0; i<local_nodes; i++ ) rcols[k++] = globalnodes[i];
+
+//    HYPRE_IJVectorCreate(comm, nlower, nupper,&xx);
+//    HYPRE_IJVectorSetObjectType(xx, HYPRE_PARCSR);
+//    HYPRE_IJVectorInitialize(xx);
+//    HYPRE_IJVectorSetValues(xx, local_nodes, rcols,xx_d);
+//    HYPRE_IJVectorAssemble(xx);
+//    HYPRE_IJVectorGetObject(xx, (void **) &par_xx);
+
+//    HYPRE_IJVectorCreate(comm, nlower, nupper,&yy);
+//    HYPRE_IJVectorSetObjectType(yy, HYPRE_PARCSR);
+//    HYPRE_IJVectorInitialize(yy);
+//    HYPRE_IJVectorSetValues(yy, local_nodes, rcols, yy_d);
+//    HYPRE_IJVectorAssemble(yy);
+//    HYPRE_IJVectorGetObject(yy, (void **) &par_yy);
+
+//    HYPRE_IJVectorCreate(comm, nlower, nupper,&zz);
+//    HYPRE_IJVectorSetObjectType(zz, HYPRE_PARCSR);
+//    HYPRE_IJVectorInitialize(zz);
+//    HYPRE_IJVectorSetValues(zz, local_nodes, rcols, zz_d);
+//    HYPRE_IJVectorAssemble(zz);
+//    HYPRE_IJVectorGetObject(zz, (void **) &par_zz);
+// #else
+//    HYPRE_IJVectorCreate(comm, ilower, iupper,&xx);
+//    HYPRE_IJVectorSetObjectType(xx, HYPRE_PARCSR);
+//    HYPRE_IJVectorInitialize(xx);
+//    HYPRE_IJVectorSetValues(xx, local_size, rcols, xx_d);
+//    HYPRE_IJVectorAssemble(xx);
+//    HYPRE_IJVectorGetObject(xx, (void **) &par_xx);
+
+//    HYPRE_IJVectorCreate(comm, ilower, iupper,&yy);
+//    HYPRE_IJVectorSetObjectType(yy, HYPRE_PARCSR);
+//    HYPRE_IJVectorInitialize(yy);
+//    HYPRE_IJVectorSetValues(yy, local_size, rcols, yy_d);
+//    HYPRE_IJVectorAssemble(yy);
+//    HYPRE_IJVectorGetObject(yy, (void **) &par_yy);
+
+//    HYPRE_IJVectorCreate(comm, ilower, iupper,&zz);
+//    HYPRE_IJVectorSetObjectType(zz, HYPRE_PARCSR);
+//    HYPRE_IJVectorInitialize(zz);
+//    HYPRE_IJVectorSetValues(zz, local_size, rcols, zz_d);
+//    HYPRE_IJVectorAssemble(zz);
+//    HYPRE_IJVectorGetObject(zz, (void **) &par_zz);
+// #endif
 
    HYPRE_AMSCreate(&precond);
    CheckHypreError("CreateHypreAMS (AMSCreate, before SetDiscreteGradient)", myid);
