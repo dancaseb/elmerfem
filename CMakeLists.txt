@@ -690,6 +690,31 @@ IF(Hypre_FOUND)
   MARK_AS_ADVANCED(HAVE_HYPRE)
   INCLUDE_DIRECTORIES(${Hypre_INCLUDE_DIR})
   # LINK_DIRECTORIES(${Hypre_LIBRARIES})
+
+  # Check if Hypre was built with --with-cuda flag
+  SET(_hypre_using_cuda FALSE)
+  FOREACH(_d ${Hypre_INCLUDE_DIR})
+    IF(EXISTS "${_d}/HYPRE_config.h")
+      FILE(STRINGS "${_d}/HYPRE_config.h" _hypre_cuda_hit REGEX "define HYPRE_USING_CUDA")
+      IF(_hypre_cuda_hit)
+        SET(_hypre_using_cuda TRUE)
+      ENDIF()
+    ENDIF()
+  ENDFOREACH()
+
+  IF(_hypre_using_cuda)
+    FIND_PACKAGE(CUDA)
+    IF(CUDA_FOUND)
+      SET(HAVE_HYPRE_CUDA TRUE)
+      MARK_AS_ADVANCED(HAVE_HYPRE_CUDA)
+      MESSAGE(STATUS "Hypre was configured --with-cuda (HYPRE_USING_CUDA); "
+                     "binding elmersolver to CUDA for per-rank GPU selection")
+    ELSE()
+      MESSAGE(WARNING "Hypre reports HYPRE_USING_CUDA but CMake could not "
+                      "find CUDA; Hypre GPU device binding will be disabled "
+                      "and all MPI ranks on a node will default to GPU 0")
+    ENDIF()
+  ENDIF()
 ENDIF()
 
 IF(FETI4I_FOUND)
