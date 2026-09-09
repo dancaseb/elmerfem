@@ -2203,7 +2203,7 @@ SUBROUTINE SolveHypre(Matrix, XVec, RHSVec, Solver, ParallelInfo, SplittedMatrix
   INTEGER :: i, j, k, l, n
   REAL(KIND=dp) :: TOL, hypre_dppara(10) = 0
   INTEGER :: ILUn, BILU, Rounds, buf(2), src, status(MPI_STATUS_SIZE), ssz,nob, &
-      hypremethod,  hypre_intpara(20) = 0
+      hypremethod,  hypre_intpara(20) = 0, HypreConverged
   INTEGER, DIMENSION(:), ALLOCATABLE :: VecEPerNB
 
   INTEGER, ALLOCATABLE :: Owner(:), Aperm(:)
@@ -2211,7 +2211,7 @@ SUBROUTINE SolveHypre(Matrix, XVec, RHSVec, Solver, ParallelInfo, SplittedMatrix
   REAL(KIND=dp), POINTER :: Vals(:)
   INTEGER, POINTER :: Rows(:), Cols(:)
 
-  LOGICAL :: Found, NewSetup, UpdateTolerance, DoAMS
+  LOGICAL :: Found, NewSetup, UpdateTolerance, DoAMS, DoFatal
   INTEGER :: verbosity, myverb
   INTEGER :: nrows, ncols, nnz
   TYPE(ValueList_t), POINTER :: Params
@@ -2239,9 +2239,9 @@ SUBROUTINE SolveHypre(Matrix, XVec, RHSVec, Solver, ParallelInfo, SplittedMatrix
 
     !! solve linear system with same matrix as in SolveHYPRE1
     SUBROUTINE SolveHYPRE2( n, GDOFs, &
-        Owner, Xvec, RHSVec, Rounds, TOL, verbosity, hypreContainer, fcomm) BIND(C,name="solvehypre2")
+        Owner, Xvec, RHSVec, Rounds, TOL, verbosity, hypreContainer, fcomm, Converged) BIND(C,name="solvehypre2")
       USE, INTRINSIC :: iso_c_binding
-      INTEGER(KIND=c_int) :: n, GDOFs(n), Owner(n), Rounds, verbosity, fcomm
+      INTEGER(KIND=c_int) :: n, GDOFs(n), Owner(n), Rounds, verbosity, fcomm, Converged
       REAL(KIND=c_double) :: Xvec(n),RHSvec(n),TOL
       INTEGER(KIND=C_INTPTR_T) :: hypreContainer
     END SUBROUTINE SolveHYPRE2
@@ -2392,10 +2392,23 @@ SUBROUTINE SolveHypre(Matrix, XVec, RHSVec, Solver, ParallelInfo, SplittedMatrix
   !-----------------------------------------------------------------------
   CALL Info(Caller,'Solving previously created Hypre setup',Level=10)
   CALL SolveHYPRE2( Matrix % NumberOfRows, Aperm, Owner, Xvec, RHSvec, &
-      Rounds, TOL, verbosity, Matrix % Hypre, Matrix % Comm )
+      Rounds, TOL, verbosity, Matrix % Hypre, Matrix % Comm, HypreConverged )
 
-  IF(Parallel) CALL ExchangeHypreResults()    
-  
+  IF( HypreConverged /= 0 ) THEN
+    IF( ASSOCIATED( Solver % Variable ) ) Solver % Variable % LinConverged = 1
+  ELSE
+    DoFatal = ListGetLogical( Params, 'Linear System Abort Not Converged', Found )
+    IF(.NOT. Found ) DoFatal = .TRUE.
+    IF( DoFatal ) THEN
+      CALL NumericalError(Caller,'Too many iterations were needed.')
+    ELSE
+      CALL Info(Caller,'HYPRE solve did not converge within the maximum number of iterations',Level=6)
+    END IF
+    IF( ASSOCIATED( Solver % Variable ) ) Solver % Variable % LinConverged = 0
+  END IF
+
+  IF(Parallel) CALL ExchangeHypreResults()
+
   CALL SParIterActiveBarrier()
   DEALLOCATE( Owner, Aperm )
 

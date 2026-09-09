@@ -902,7 +902,7 @@ void STDCALLBULL FC_FUNC(solvehypre2,SOLVEHYPRE2)
  (
   int *nrows, int *globaldofs, int *owner,  double *xvec,
   double *rhsvec, int *Rounds, double *TOL,
-  int *verbosityPtr, int** ContainerPtr, int *fcomm
+  int *verbosityPtr, int** ContainerPtr, int *fcomm, int *converged
  )
 {
 
@@ -932,9 +932,9 @@ void STDCALLBULL FC_FUNC(solvehypre2,SOLVEHYPRE2)
    int verbosity = *verbosityPtr, myverb;
    int hypre_sol, hypre_pre;
 
-   int num_iterations;
-   double final_res_norm;
-   
+   int num_iterations = 0;
+   double final_res_norm = 0.0;
+
    Container = (ElmerHypreContainer*)(*ContainerPtr);
 
    /* which process number am I? */
@@ -946,6 +946,8 @@ void STDCALLBULL FC_FUNC(solvehypre2,SOLVEHYPRE2)
      myverb = verbosity;
    else
      myverb = 0;
+
+   *converged = 1;
 
    if (myverb > 10) fprintf(stdout,"SolveHypre: solving the linear system\n");
    if (Container==NULL) {
@@ -1001,19 +1003,15 @@ void STDCALLBULL FC_FUNC(solvehypre2,SOLVEHYPRE2)
    if( hypre_sol == 1) {
      if(myverb > 6) fprintf(stdout,"SolveHypre: Solving linear system with BoomerAMG (method %d)\n",Container->hypre_method);
      HYPRE_BoomerAMGSolve(Container->solver, parcsr_A, par_b, par_x);     
-     if (myverb > 5 ) {
-       HYPRE_BoomerAMGGetNumIterations(Container->solver, &num_iterations);
-       HYPRE_BoomerAMGGetFinalRelativeResidualNorm(solver, &final_res_norm);
-     }
+     HYPRE_BoomerAMGGetNumIterations(Container->solver, &num_iterations);
+     HYPRE_BoomerAMGGetFinalRelativeResidualNorm(solver, &final_res_norm);
    }
    
    else if( hypre_sol == 2 ) {
      if(myverb > 6) fprintf(stdout,"SolveHypre: Solving linear system with AMS (method %d)\n",Container->hypre_method);
      HYPRE_AMSSolve(Container->solver, parcsr_A, par_b, par_x);
-     if (myverb > 5 ) {
-       HYPRE_AMSGetNumIterations(Container->solver, &num_iterations);
-       HYPRE_AMSGetFinalRelativeResidualNorm(solver, &final_res_norm);
-     }
+     HYPRE_AMSGetNumIterations(Container->solver, &num_iterations);
+     HYPRE_AMSGetFinalRelativeResidualNorm(solver, &final_res_norm);
    }
    
    else if ( hypre_sol == 6) {
@@ -1021,10 +1019,8 @@ void STDCALLBULL FC_FUNC(solvehypre2,SOLVEHYPRE2)
 //     HYPRE_ParCSRPCGSetMaxIter(solver, *Rounds); /* max iterations */
      HYPRE_ParCSRPCGSolve(Container->solver, parcsr_A, par_b, par_x);
 
-     if (myverb > 5 ) {
-       HYPRE_PCGGetNumIterations(Container->solver, &num_iterations);
-       HYPRE_PCGGetFinalRelativeResidualNorm(solver, &final_res_norm);
-     }
+     HYPRE_PCGGetNumIterations(Container->solver, &num_iterations);
+     HYPRE_PCGGetFinalRelativeResidualNorm(solver, &final_res_norm);
    }
 
    if ( hypre_sol == 7) {
@@ -1032,10 +1028,8 @@ void STDCALLBULL FC_FUNC(solvehypre2,SOLVEHYPRE2)
      //     HYPRE_ParCSRBiCGSTABSetMaxIter(solver, *Rounds); /* max iterations */
      HYPRE_ParCSRBiCGSTABSolve(Container->solver, parcsr_A, par_b, par_x);
 
-     if (myverb > 5 ) {
-       HYPRE_BiCGSTABGetNumIterations(Container->solver, &num_iterations);
-       HYPRE_BiCGSTABGetFinalRelativeResidualNorm(solver, &final_res_norm);
-     }
+     HYPRE_BiCGSTABGetNumIterations(Container->solver, &num_iterations);
+     HYPRE_BiCGSTABGetFinalRelativeResidualNorm(solver, &final_res_norm);
    }
 
    else if ( hypre_sol == 8) {
@@ -1043,10 +1037,8 @@ void STDCALLBULL FC_FUNC(solvehypre2,SOLVEHYPRE2)
 //     HYPRE_GMRESSetMaxIter(solver, *Rounds); /* max GMRES iterations */
      HYPRE_ParCSRGMRESSolve(Container->solver, parcsr_A, par_b, par_x);
 
-     if (myverb > 5 ) {
-       HYPRE_GMRESGetNumIterations(Container->solver, &num_iterations);
-       HYPRE_GMRESGetFinalRelativeResidualNorm(solver, &final_res_norm);
-     }
+     HYPRE_GMRESGetNumIterations(Container->solver, &num_iterations);
+     HYPRE_GMRESGetFinalRelativeResidualNorm(solver, &final_res_norm);
    }
 
    else if ( hypre_sol == 9) {
@@ -1054,10 +1046,8 @@ void STDCALLBULL FC_FUNC(solvehypre2,SOLVEHYPRE2)
 //     HYPRE_ParCSRFlexGMRESSetMaxIter(solver, *Rounds); /* max iterations */
      HYPRE_ParCSRFlexGMRESSolve(Container->solver, parcsr_A, par_b, par_x);
      
-     if (myverb > 5 ) {
-       HYPRE_FlexGMRESGetNumIterations(Container->solver, &num_iterations);
-       HYPRE_FlexGMRESGetFinalRelativeResidualNorm(solver, &final_res_norm);
-     }
+     HYPRE_FlexGMRESGetNumIterations(Container->solver, &num_iterations);
+     HYPRE_FlexGMRESGetFinalRelativeResidualNorm(solver, &final_res_norm);
    }
 
    else if ( hypre_sol == 10) {
@@ -1065,29 +1055,31 @@ void STDCALLBULL FC_FUNC(solvehypre2,SOLVEHYPRE2)
 //     HYPRE_ParCSRLGMRESSetMaxIter(solver, *Rounds); /* max iterations */
      HYPRE_ParCSRLGMRESSolve(Container->solver, parcsr_A, par_b, par_x);
 
-     if (myverb > 5 ) {
-       HYPRE_LGMRESGetNumIterations(Container->solver, &num_iterations);
-       HYPRE_LGMRESGetFinalRelativeResidualNorm(solver, &final_res_norm);
-     }
+     HYPRE_LGMRESGetNumIterations(Container->solver, &num_iterations);
+     HYPRE_LGMRESGetFinalRelativeResidualNorm(solver, &final_res_norm);
    }
    else if ( hypre_sol == 11) {
      if(myverb > 6) fprintf(stdout,"SolveHypre: Solving linear system with COGMRes (method %d)\n",Container->hypre_method);     
 //     HYPRE_ParCSRLGMRESSetMaxIter(solver, *Rounds); /* max iterations */
      HYPRE_ParCSRCOGMRESSolve(Container->solver, parcsr_A, par_b, par_x);
           
-     if (myverb > 5 ) {
-       HYPRE_COGMRESGetNumIterations(Container->solver, &num_iterations);
-       HYPRE_COGMRESGetFinalRelativeResidualNorm(solver, &final_res_norm);
-     }
+     HYPRE_COGMRESGetNumIterations(Container->solver, &num_iterations);
+     HYPRE_COGMRESGetFinalRelativeResidualNorm(solver, &final_res_norm);
    }
 
    CheckHypreError("SolveHypre2 (solve)", myid);
 
+   /* HYPRE does not flag an error when a solve simply runs out of
+      iterations without reaching the requested tolerance; catch that
+      case explicitly so the caller can report/abort like it does for
+      AMGX's AMGX_SOLVE_NOT_CONVERGED status. */
+   *converged = ( num_iterations < *Rounds ) ? 1 : 0;
+
    for( k=0,i=0; i<local_size; i++ )
      if ( owner[i] ) rcols[k++] = globaldofs[i];
-   
+
    HYPRE_IJVectorGetValues(x, k, rcols, txvec );
-   
+
    for( i=0,k=0; i<local_size; i++ )
      if ( owner[i] ) xvec[i] = txvec[k++];
 
