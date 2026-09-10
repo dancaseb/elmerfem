@@ -703,10 +703,14 @@ IF(Hypre_FOUND)
   ENDFOREACH()
 
   IF(_hypre_using_cuda)
-    FIND_PACKAGE(CUDA)
-    IF(CUDA_FOUND)
+    FIND_PACKAGE(CUDAToolkit)
+    IF(CUDAToolkit_FOUND)
       SET(HAVE_HYPRE_CUDA TRUE)
       MARK_AS_ADVANCED(HAVE_HYPRE_CUDA)
+      # Hypre's own CUDA-enabled build needs these linked in directly,
+      # independent of whether WITH_AMGX is also enabled.
+      SET(HYPRE_CUDA_LIBRARIES CUDA::cudart CUDA::cublas CUDA::cusparse CUDA::cusolver CUDA::curand)
+      MARK_AS_ADVANCED(HYPRE_CUDA_LIBRARIES)
       MESSAGE(STATUS "Hypre was configured --with-cuda (HYPRE_USING_CUDA); "
                      "binding elmersolver to CUDA for per-rank GPU selection")
     ELSE()
