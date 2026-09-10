@@ -1545,8 +1545,15 @@ void STDCALLBULL FC_FUNC(createhypreams,CREATEHYPREAMS)
    HYPRE_AMSSetCycleType(precond, hypre_intpara[1]); // 1-14
    HYPRE_AMSSetSmoothingOptions(precond, hypre_intpara[2], hypre_intpara[3],
            hypre_dppara[1], hypre_dppara[2]);
+#if defined(HAVE_HYPRE_CUDA)
+  // Interpolation type 0 is not supported on GPU, use 6 instead.
+  // see Hypre BoomerAMG docs for more info
+   HYPRE_AMSSetAlphaAMGOptions(precond, 10, 1, 3, hypre_dppara[3], 6, 0);
+   HYPRE_AMSSetBetaAMGOptions(precond, 10, 1, 3, hypre_dppara[4], 6, 0);
+#else
    HYPRE_AMSSetAlphaAMGOptions(precond, 10, 1, 3, hypre_dppara[3], 0, 0);
    HYPRE_AMSSetBetaAMGOptions(precond, 10, 1, 3, hypre_dppara[4], 0, 0);
+#endif
 
    if(hypre_intpara[4])
      HYPRE_AMSSetBetaPoissonMatrix(precond,NULL);
