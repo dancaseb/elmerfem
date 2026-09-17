@@ -39,8 +39,8 @@
 
 !------------------------------------------------------------------------------
 !>  Module containing the direct solvers for linear systems given in CRS format.
-!> Included are Lapack band matrix solver, multifrontal Umfpack, MUMPS, SuperLU, 
-!> and Pardiso. Note that many of these are linked in with ElmerSolver only 
+!> Included are Lapack band matrix solver, multifrontal Umfpack, MUMPS, SuperLU,
+!> Pardiso, and NVIDIA's GPU-based cuDSS. Note that many of these are linked in with ElmerSolver only
 !> if they are made available at the compilation time. 
 !------------------------------------------------------------------------------
 
@@ -623,6 +623,165 @@ CONTAINS
 #endif
 !------------------------------------------------------------------------------
   END SUBROUTINE Cholmod_SolveSystem
+!------------------------------------------------------------------------------
+
+
+!------------------------------------------------------------------------------
+!> Solves a linear system using NVIDIA's cuDSS GPU sparse direct solver.
+!> Single-GPU only for now. Mirrors Cholmod_SolveSystem's persistent-handle
+!> pattern (a small C wrapper in SolveCUDSS.c, opaque handle stashed on
+!> A % Cudss) and Pardiso_SolveSystem's matrix-type keyword handling and
+!> upper-triangle extraction for symmetric/SPD systems.
+!------------------------------------------------------------------------------
+  SUBROUTINE CUDSS_SolveSystem( Solver,A,x,b,Free_fact )
+!------------------------------------------------------------------------------
+  LOGICAL, OPTIONAL :: Free_Fact
+  TYPE(Matrix_t) :: A
+  TYPE(Solver_t) :: Solver
+  REAL(KIND=dp) :: x(*), b(*)
+
+#ifdef HAVE_CUDSS
+  INTERFACE
+     FUNCTION cudss_ffactorize(n,nnz,rows,cols,vals,mtype) RESULT(cudss) &
+         BIND(c,NAME="cudss_ffactorize")
+        USE Types
+        INTEGER :: n, nnz, mtype, Rows(*), Cols(*)
+        REAL(KIND=dp) :: Vals(*)
+        INTEGER(KIND=AddrInt) :: cudss
+     END FUNCTION cudss_ffactorize
+
+     SUBROUTINE cudss_fsolve(cudss, n, x, b) BIND(c,NAME="cudss_fsolve")
+        USE Types
+        REAL(KIND=dp) :: x(*), b(*)
+        INTEGER :: n
+        INTEGER(KIND=AddrInt) :: cudss
+     END SUBROUTINE cudss_fsolve
+
+     SUBROUTINE cudss_ffree(cudss) BIND(c,NAME="cudss_ffree")
+        USE Types
+        INTEGER(KIND=AddrInt) :: cudss
+     END SUBROUTINE cudss_ffree
+  END INTERFACE
+
+  LOGICAL :: Factorize, FreeFactorize, Found, MatSym, MatPD
+  INTEGER :: i, j, nzutd, mtype, allocstat, nnz
+  CHARACTER(:), ALLOCATABLE :: mat_type
+  INTEGER, POINTER CONTIG :: Rows(:), Cols(:)
+  REAL(KIND=dp), POINTER CONTIG :: Vals(:)
+  INTEGER, ALLOCATABLE, TARGET :: TRows(:), TCols(:)
+  REAL(KIND=dp), ALLOCATABLE, TARGET :: TVals(:)
+
+  IF ( PRESENT(Free_Fact) ) THEN
+    IF ( Free_Fact ) THEN
+      IF ( A % Cudss/=0 ) THEN
+        CALL cudss_ffree(A % Cudss)
+        A % Cudss = 0
+      END IF
+      RETURN
+    END IF
+  END IF
+
+  IF ( A % Complex ) THEN
+    CALL Fatal('CUDSS_SolveSystem', &
+        'The cuDSS backend currently only supports real-valued linear systems.')
+  END IF
+
+  Factorize = ListGetLogical( Solver % Values, &
+     'Linear System Refactorize', Found )
+  IF ( .NOT. Found ) Factorize = .TRUE.
+
+  IF ( Factorize .OR. A % Cudss==0 ) THEN
+    IF ( A % Cudss/=0 ) THEN
+      CALL cudss_ffree(A % Cudss)
+      A % Cudss = 0
+    END IF
+
+    ! Same "Linear System Matrix Type" / Symmetric / Positive Definite
+    ! keywords as Pardiso_SolveSystem, mapped to cuDSS's own matrix types:
+    ! 0 = general, 1 = symmetric (indefinite or structurally symmetric;
+    ! cuDSS has no separate structurally-symmetric type), 2 = SPD.
+    mat_type = ListGetString(Solver % Values,'Linear System Matrix Type',Found)
+    IF ( Found ) THEN
+      SELECT CASE(mat_type)
+      CASE('positive definite')
+        mtype = 2
+      CASE('symmetric indefinite','structurally symmetric')
+        mtype = 1
+      CASE DEFAULT
+        mtype = 0
+      END SELECT
+    ELSE
+      MatSym = ListGetLogical(Solver % Values,'Linear System Symmetric', Found)
+      MatPD  = ListGetLogical(Solver % Values,'Linear System Positive Definite', Found)
+      IF ( MatSym ) THEN
+        IF ( MatPD ) THEN
+          mtype = 2
+        ELSE
+          mtype = 1
+        END IF
+      ELSE
+        mtype = 0
+      END IF
+    END IF
+
+    IF ( mtype == 0 ) THEN
+      Rows => A % Rows
+      Cols => A % Cols
+      Vals => A % Values
+    ELSE
+      ! Upper triangle (incl. diagonal) only -- identical to the copy
+      ! Pardiso_SolveSystem makes for its symmetric/SPD matrix types.
+      nzutd = 0
+      DO i=1,A % NumberOfRows
+        nzutd = nzutd + A % Rows(i+1)-A % Diag(i)
+      END DO
+
+      ALLOCATE( TVals(nzutd), TCols(nzutd), TRows(A % NumberOfRows+1), STAT=allocstat )
+      IF ( allocstat /= 0 ) THEN
+        CALL Fatal('CUDSS_SolveSystem', &
+            'Memory allocation for row and column indices failed')
+      END IF
+
+      TRows(1) = 1
+      DO i=1,A % NumberOfRows
+        nzutd = A % Rows(i+1)-A % Diag(i)
+        TRows(i+1) = TRows(i)+nzutd
+        DO j=0,nzutd-1
+          TCols(TRows(i)+j) = A % Cols(A % Diag(i)+j)
+          TVals(TRows(i)+j) = A % Values(A % Diag(i)+j)
+        END DO
+      END DO
+
+      Rows => TRows
+      Cols => TCols
+      Vals => TVals
+    END IF
+
+    nnz = Rows(A % NumberOfRows+1)-1
+    A % Cudss = cudss_ffactorize( A % NumberOfRows, nnz, Rows, Cols, Vals, mtype )
+
+    IF ( mtype /= 0 ) DEALLOCATE( TRows, TCols, TVals )
+
+    IF ( A % Cudss == 0 ) THEN
+      CALL Fatal('CUDSS_SolveSystem','cuDSS analysis/factorization failed.')
+    END IF
+  END IF
+
+  CALL cudss_fsolve( A % Cudss, A % NumberOfRows, x, b )
+
+  FreeFactorize = ListGetLogical( Solver % Values, &
+      'Linear System Free Factorization', Found )
+  IF ( .NOT. Found ) FreeFactorize = .TRUE.
+
+  IF ( Factorize .AND. FreeFactorize ) THEN
+    CALL cudss_ffree(A % Cudss)
+    A % Cudss = 0
+  END IF
+#else
+   CALL Fatal( 'CUDSS_SolveSystem', 'cuDSS Solver has not been installed.' )
+#endif
+!------------------------------------------------------------------------------
+  END SUBROUTINE CUDSS_SolveSystem
 !------------------------------------------------------------------------------
 
 
@@ -4301,6 +4460,9 @@ CONTAINS
         CALL SPQR_SolveSystem( Solver, A, x, b, Free_Fact )
         CALL Cholmod_SolveSystem( Solver, A, x, b, Free_Fact )
 #endif
+#ifdef HAVE_CUDSS
+        CALL CUDSS_SolveSystem( Solver, A, x, b, Free_Fact )
+#endif
 #ifdef HAVE_FETI4I
         CALL Permon_SolveSystem( Solver, A, x, b, Free_Fact )
 #endif
@@ -4370,6 +4532,9 @@ CONTAINS
 
       CASE( 'cpardiso' )
         CALL CPardiso_SolveSystem( Solver, A, x, b )
+
+      CASE( 'cudss' )
+        CALL CUDSS_SolveSystem( Solver, A, x, b )
 
       CASE DEFAULT
         CALL Fatal( 'DirectSolver', 'Unknown direct solver method.' )
