@@ -125,11 +125,11 @@ cudss_t *FC_FUNC_(cudss_ffactorize,CUDSS_FFACTORIZE)
    * CUDSS_BASE_ONE -- no reindexing needed. */
   if (!cudss_ok(cudssMatrixCreateCsr(&h->Amat, *n, *n, *nnz,
                     h->d_rows, h->d_rows + 1, h->d_cols, h->d_vals,
-                    CUDA_R_32I, CUDA_R_64F, mt, mv, CUDSS_BASE_ONE),
+                    CUDSS_R_32I, CUDSS_R_32I, CUDSS_R_64F, mt, mv, CUDSS_BASE_ONE),
                 "cudssMatrixCreateCsr") ||
-      !cudss_ok(cudssMatrixCreateDn(&h->bmat, *n, 1, *n, h->d_b, CUDA_R_64F,
+      !cudss_ok(cudssMatrixCreateDn(&h->bmat, *n, 1, *n, h->d_b, CUDSS_R_64F,
                     CUDSS_LAYOUT_COL_MAJOR), "cudssMatrixCreateDn(b)") ||
-      !cudss_ok(cudssMatrixCreateDn(&h->xmat, *n, 1, *n, h->d_x, CUDA_R_64F,
+      !cudss_ok(cudssMatrixCreateDn(&h->xmat, *n, 1, *n, h->d_x, CUDSS_R_64F,
                     CUDSS_LAYOUT_COL_MAJOR), "cudssMatrixCreateDn(x)")) {
     cudss_teardown(h);
     return NULL;
